@@ -1,0 +1,30 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kafka-metrics
+  namespace: kafka
+  labels:
+    app.kubernetes.io/name: kafka-metrics
+    app.kubernetes.io/part-of: kafka
+    strimzi.io/kind: Kafka
+    strimzi.io/cluster: my-cluster
+data:
+  kafka-config.yml: |
+    lowercaseOutputName: true
+    rules:
+        - pattern: kafka.server<type=(.+), name=(.+)PerSec\w*, topic=(.+)><>Count
+            name: kafka_server_$1_$2_total
+            labels:
+                topic: "$3"
+        - pattern: kafka.server<type=(.+), name=(.+)PerSec\w*><>Count
+            name: kafka_network_$1_$2_total
+  zookeeper-config.yml: |
+    lowercaseOutputName: true
+    rules:
+        - pattern: org.apache.ZooKeeperService<name0=ReplicatedServer_id(\d+)><>(\w+)
+            name: zookeeper_$1
+  cruise-control-config.yml: |
+    lowercaseOutputName: true
+    rules:
+        - pattern: kafka.cruisecontrol<name=(.+)><>(\w+)
+            name: cruisecontrol_$1_$2
