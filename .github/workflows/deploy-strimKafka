@@ -1,0 +1,151 @@
+name: Deploy Kafka Platform
+
+on:
+  push:
+    branches: [main, staging]
+  pull_request:
+    branches: [main, staging]
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io/${{ github.repository_owner }}
+  IMAGE_PRODUCER: kafka-producer
+  IMAGE_CONSUMER: kafka-consumer
+  K8S_NAMESPACE: kafka
+  K8S_CONTEXT: prod
+  OVERLAY_PATH: k8s/overlays/prod-secure
+  KUSTOMIZE_VERSION: "5.3.0"
+  KUBECTL_VERSION: "1.30.1"
+
+jobs:
+  lint:
+    name: 🧹 Lint & Validate K8s Manifests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install tools
+        run: |
+          curl -sL https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv${KUSTOMIZE_VERSION}/kustomize_v${KUSTOMIZE_VERSION}_linux_amd64.tar.gz | tar xz -C /usr/local/bin
+          sudo apt-get update && sudo apt-get install -y yamllint kubeval
+
+      - name: Lint YAML
+        run: yamllint k8s/ -c .yamllint.yaml || true
+
+      - name: Validate manifests with kubeval
+        run: kubeval --ignore-missing-schemas --strict $(find k8s/base -name '*.yaml')
+
+      - name: Kustomize build validation
+        run: kustomize build k8s/overlays/prod-secure | kubeval --ignore-missing-schemas
+
+  security:
+    name: 🔒 Security Scan (Trivy)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run Trivy on manifests
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: config
+          ignore-unfixed: true
+          severity: HIGH,CRITICAL
+          hide-progress: true
+
+  build:
+    name: 🏗️ Build & Push Images
+    runs-on: ubuntu-latest
+    needs: [lint, security]
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build Producer image
+        run: |
+          docker build -t $REGISTRY/$IMAGE_PRODUCER:${{ github.sha }} ./apps/producer
+          docker push $REGISTRY/$IMAGE_PRODUCER:${{ github.sha }}
+
+      - name: Build Consumer image
+        run: |
+          docker build -t $REGISTRY/$IMAGE_CONSUMER:${{ github.sha }} ./apps/consumer
+          docker push $REGISTRY/$IMAGE_CONSUMER:${{ github.sha }}
+
+      - name: Generate image tag outputs
+        id: image_tags
+        run: |
+          echo "producer_image=$REGISTRY/$IMAGE_PRODUCER:${{ github.sha }}" >> $GITHUB_OUTPUT
+          echo "consumer_image=$REGISTRY/$IMAGE_CONSUMER:${{ github.sha }}" >> $GITHUB_OUTPUT
+
+  deploy:
+    name: 🚀 Deploy to Kubernetes
+    runs-on: ubuntu-latest
+    needs: build
+    environment:
+      name: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install kubectl & kustomize
+        run: |
+          curl -sLO https://dl.k8s.io/release/v${KUBECTL_VERSION}/bin/linux/amd64/kubectl
+          sudo install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
+          curl -sL https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv${KUSTOMIZE_VERSION}/kustomize_v${KUSTOMIZE_VERSION}_linux_amd64.tar.gz | tar xz -C /usr/local/bin
+
+      - name: Configure kubeconfig
+        run: |
+          mkdir -p ~/.kube
+          echo "${{ secrets.KUBECONFIG_PROD }}" > ~/.kube/config
+          chmod 600 ~/.kube/config
+
+      - name: Set image tags dynamically
+        run: |
+          kustomize edit set image producer=${{ needs.build.outputs.producer_image }}
+          kustomize edit set image consumer=${{ needs.build.outputs.consumer_image }}
+        working-directory: ${{ env.OVERLAY_PATH }}
+
+      - name: Apply manifests via kubectl
+        run: |
+          kubectl config use-context $K8S_CONTEXT
+          kubectl apply -k $OVERLAY_PATH
+          kubectl rollout status deployment/akhq -n $K8S_NAMESPACE --timeout=5m
+
+      - name: Verify AKHQ availability
+        run: |
+          kubectl -n kafka get svc akhq
+          kubectl -n kafka get pods
+
+  notify:
+    name: 📣 Notify
+    runs-on: ubuntu-latest
+    if: always()
+    needs: [deploy]
+    steps:
+      - name: Slack notification
+        if: ${{ success() }}
+        uses: slackapi/slack-github-action@v1.27.0
+        with:
+          payload: |
+            {
+              "text": ":rocket: *Kafka Platform deployed successfully!* Environment: `${{ github.ref_name }}`"
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+      - name: Slack failure
+        if: ${{ failure() }}
+        uses: slackapi/slack-github-action@v1.27.0
+        with:
+          payload: |
+            {
+              "text": ":warning: *Kafka Platform deployment failed!* Check logs in GitHub Actions."
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
