@@ -1,0 +1,18 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: akhq-config
+  namespace: akhq
+data:
+  application.yml: |
+    akhq:
+      connections:
+        local:
+          properties:
+            bootstrap.servers: my-cluster-kafka-brokers.kafka.svc:9092
+      security:
+        basic-auth:
+          users:
+            - username: admin
+              password: admin
+              groups: [admin]

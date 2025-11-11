@@ -1,0 +1,28 @@
+apiVersion: apps/v1
+kind: Deployment
+metdatata:
+  name: akhq
+  namespace: kafka
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: akhq
+  template:
+    metadata:
+      labels:
+        app: akhq
+    spec:
+      containers:
+        - name: akhq
+          image: tchiotludo/akhq:0.24.0
+          ports:
+            - containerPort: 8080
+          volumeMounts:
+            - name: akhq-config
+              mountPath: /app/akhq/application.yml
+              subPath: application.yml
+      volumes:
+        - name: config
+          configMap:
+            name: akhq-config
