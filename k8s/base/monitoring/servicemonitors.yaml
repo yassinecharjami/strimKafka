@@ -1,0 +1,61 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: kafka-jmx
+  namespace: monitoring
+  labels:
+    app: kafka-jmx
+spec:
+    selector:
+      strimzi.io/name: my-cluster-kafka
+    ports:
+      - name: tcp-jmx
+        port: 9404
+        targetPort: 9404
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: zookeeper-jmx
+  namespace: monitoring
+  labels:
+    app: zookeeper-jmx
+spec:
+  selector:
+    strimzi.io/name: my-cluster-zookeeper
+  ports:
+    - name: tcp-jmx
+      port: 9404
+      targetPort: 9404
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: kafka-servicemonitor
+  namespace: monitoring
+spec:
+  selector:
+    matchLabels:
+      app: kafka-jmx
+    namespaceSelector:
+      matchNames:
+        - monitoring
+  endpoints:
+    - port: tcp-jmx
+      interval: 15s
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: zookeeper-servicemonitor
+  namespace: monitoring
+spec:
+  selector:
+    matchLabels:
+      app: zookeeper-jmx
+    namespaceSelector:
+      matchNames:
+        - monitoring
+  endpoints:
+    - port: tcp-jmx
+      interval: 15s

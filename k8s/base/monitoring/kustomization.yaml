@@ -8,3 +8,4 @@ resources:
   - grafana.yaml
   - alertmanager-deployment.yaml
   - alertmanager-service.yaml
+  - servicemonitors.yaml
