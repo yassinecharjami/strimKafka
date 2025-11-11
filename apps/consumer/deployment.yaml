@@ -1,0 +1,23 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: consumer
+  namespace: kafka
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: consumer
+  template:
+    metadata:
+      labels:
+        app: consumer
+    spec:
+      containers:
+        - name: consumer
+          image: confluentinc/cp-kafkacat:7.6.1
+          command: [ "bash","-lc" ]
+          args:
+            - |
+              kafkacat -b my-cluster-kafka-brokers.kafka.svc:9092 -C -t demo -o end -q -u ;
+              kafkacat -b my-cluster-kafka-brokers.kafka.svc:9092 -C -t demo

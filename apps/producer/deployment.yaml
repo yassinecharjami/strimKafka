@@ -1,0 +1,23 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: producer
+  namespace: kafka
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: producer
+  template:
+    metadata:
+      labels:
+        app: producer
+    spec:
+      containers:
+        - name: producer
+          image: ghcr.io/vectorizedio/redpanda:latest
+          command: ["bash", "-lc"]
+          args:
+            - |
+              rpk topic create demo || true ;
+              while true; do echo "$(date) hello" | rpk topic produce -b my-cluster-kafka-brokers.kafka.svc:9092 demo ; sleep 1; done
